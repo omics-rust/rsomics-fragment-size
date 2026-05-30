@@ -1,15 +1,7 @@
-//! Paired-end insert-size distribution from a coordinate-sorted BAM.
+//! Paired-end insert-size histogram from a coordinate-sorted BAM.
 //!
-//! Reads proper-pair + first-in-pair reads only (avoids double-counting).
-//! Fragment size = |TLEN| from the BAM record. Builds a u64 histogram over
-//! sizes 0..=MAX_SIZE in a single pass. Sizes above the cap are binned at MAX_SIZE.
-//!
-//! ATAC nucleosome fractions follow the common ENCODE / ATAC-seq QC convention:
-//! - NFR (nucleosome-free region): < 100 bp
-//! - mono-nucleosome: 180–247 bp
-//! - di-nucleosome: 315–473 bp
-//!
-//! Output: TSV histogram `size\tcount` + summary block.
+//! ATAC nucleosome fractions follow the ENCODE / ATAC-seq QC convention
+//! (NFR < 100 bp, mono 180–247 bp, di 315–473 bp).
 
 #![allow(clippy::cast_precision_loss)]
 
@@ -27,11 +19,9 @@ const FLAG_PROPER_PAIR: u16 = 0x2;
 const FLAG_UNMAPPED: u16 = 0x4;
 const FLAG_READ1: u16 = 0x40;
 
-/// Upper cap on the histogram array (inclusive). Sizes above this are counted
-/// at MAX_SIZE. 2000 bp covers >99% of short-read paired-end library inserts.
+/// Sizes above this cap are binned here; 2000 bp covers >99% of short-read PE libraries.
 pub const MAX_SIZE: usize = 2000;
 
-/// ATAC-seq nucleosome-period size thresholds (bp, inclusive ranges).
 pub const NFR_MAX: u64 = 100;
 pub const MONO_MIN: u64 = 180;
 pub const MONO_MAX: u64 = 247;
@@ -52,15 +42,11 @@ pub struct Summary {
     pub mode: u64,
     pub min: u64,
     pub max: u64,
-    /// Fraction of fragments < 100 bp (NFR).
     pub nfr_fraction: f64,
-    /// Fraction of fragments 180–247 bp (mono-nucleosome).
     pub mono_fraction: f64,
-    /// Fraction of fragments 315–473 bp (di-nucleosome).
     pub di_fraction: f64,
 }
 
-/// One-pass histogram scan. Returns the u64 histogram array and the Summary.
 pub fn compute(
     input: &Path,
     opts: &SizeOpts,
@@ -180,7 +166,6 @@ fn summarise(hist: &[u64; MAX_SIZE + 1]) -> Summary {
     }
 }
 
-/// Write the histogram TSV to `output` (size\tcount), skipping zero-count sizes.
 pub fn write_histogram(output: &mut dyn Write, hist: &[u64; MAX_SIZE + 1]) -> Result<()> {
     let mut out = BufWriter::with_capacity(256 * 1024, output);
     writeln!(out, "size\tcount").map_err(RsomicsError::Io)?;
